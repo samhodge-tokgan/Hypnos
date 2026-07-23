@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The export design is verified without MEMatte checkpoints or detectron2:
+  # these two tests are what stand behind the "the rewrite is equivalent" and
+  # "one graph serves every resolution" claims, so they gate everything else.
+  export-design:
+    name: Export design (routing equivalence + shape dynamics)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install onnx onnxruntime numpy
+      - name: Routing equivalence vs upstream eval path
+        run: python tools/routing_equivalence_test.py
+      - name: Resolution dynamics
+        run: python tools/shape_dynamics_test.py
+
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install patchelf (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y patchelf
+
+      - name: Configure
+        run: cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Providers and memory probe
+        # Reports which EP is available and what the memory probe measures on
+        # this runner. GitHub runners have no GPU, so CPU-only here is expected;
+        # the CUDA path is exercised on a self-hosted GPU runner.
+        run: |
+          ./build/ort_check || ./build/Release/ort_check.exe || true
+        shell: bash
+
+      - name: Check bundle layout
+        shell: bash
+        run: |
+          set -e
+          BUNDLE=build/MEMatte.ofx.bundle
+          test -d "$BUNDLE" || { echo "no bundle"; exit 1; }
+          case "${{ runner.os }}" in
+            macOS)   ARCH=MacOS;        LIBDIR=Frameworks;    LIB=libonnxruntime_hyp.1.dylib;;
+            Linux)   ARCH=Linux-x86-64; LIBDIR=Linux-x86-64;  LIB=libonnxruntime_hyp.so.1;;
+            Windows) ARCH=Win64;        LIBDIR=Win64;         LIB=onnxruntime_hyp.dll;;
+          esac
+          # The Linux arch dir MUST be hyphenated or OFX hosts silently skip the
+          # binary - worth failing CI over, since nothing else catches it.
+          test -f "$BUNDLE/Contents/$ARCH/MEMatte.ofx"
+          test -f "$BUNDLE/Contents/$LIBDIR/$LIB"
+          echo "bundle layout ok"
+
+      - name: Check symbol isolation (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          BIN=$(find build/MEMatte.ofx.bundle -name 'MEMatte.ofx' -type f | head -1)
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            SYMS=$(nm -gU "$BIN" | awk '{print $3}' | sort)
+            EXPECT=$(printf '_OfxGetNumberOfPlugins\n_OfxGetPlugin\n')
+          else
+            SYMS=$(nm -D --defined-only "$BIN" | awk '{print $3}' | grep -v '^_' | sort)
+            EXPECT=$(printf 'OfxGetNumberOfPlugins\nOfxGetPlugin\n')
+          fi
+          # Anything else exported could interpose on the host or a sibling plugin.
+          if [ "$SYMS" != "$EXPECT" ]; then
+            echo "unexpected exported symbols:"; echo "$SYMS"; exit 1
+          fi
+          echo "symbol isolation ok"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MEMatte-${{ matrix.os }}
+          path: build/MEMatte.ofx.bundle

@@ -1,0 +1,25 @@
+# Python dependencies for the ONNX export and its tests.
+#
+# The export itself ALSO needs detectron2, which has no PyPI wheel and so is not
+# listed here. Install it separately (a CPU build is fine for export):
+#   pip install 'git+https://github.com/facebookresearch/detectron2.git'
+# and clone MEMatte itself:
+#   git clone https://github.com/linyiheng123/MEMatte
+#
+# tools/routing_equivalence_test.py and tools/shape_dynamics_test.py need only
+# what is listed below — they deliberately avoid the detectron2 dependency so
+# the export design can be verified without a full MEMatte install.
+
+torch>=2.1
+onnx>=1.16
+onnxruntime>=1.17
+numpy>=1.24
+
+# MEMatte's model code imports these at module load.
+timm>=0.9
+fvcore
+fairscale
+
+# Test-fixture generation (tests/natron/make_test_assets.py).
+pillow>=10
+imageio>=2.31

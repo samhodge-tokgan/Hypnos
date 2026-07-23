@@ -1,0 +1,92 @@
+Hypnos — MEMatte OpenFX plugin
+Copyright the Hypnos authors.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+================================================================================
+Third-party components
+================================================================================
+
+--------------------------------------------------------------------------------
+MEMatte — "Memory Efficient Matting with Adaptive Token Routing" (AAAI 2025)
+https://github.com/linyiheng123/MEMatte
+Licence: MIT
+--------------------------------------------------------------------------------
+
+The neural network this plugin runs is MEMatte, and the ONNX export tooling here
+is a DERIVATIVE WORK of MEMatte's source. Specifically:
+
+  * tools/mematte_routing.py
+      - `reference_routing` and `_plain_attention` are a transcription of the
+        eval path in MEMatte's `modeling/backbone/vit.py` (ViT.forward and
+        Block.forward), kept as the reference to test the rewrite against.
+      - `export_routing`, `masked_attention` and `build_mask` are a rewrite of
+        that same logic for ONNX export.
+      - `router_forward_export` is a shape-explicit restatement of
+        `Router.forward` from `modeling/backbone/utils.py`.
+
+  * tools/export_mematte.py
+      - `routed_block_forward` and `make_vit_forward` replace MEMatte's
+        `Block.forward` and `ViT.forward` for export, and follow their structure.
+
+  * tools/shape_dynamics_test.py
+      - `get_abs_pos`, `window_partition`, `window_unpartition` and `Router` are
+        transcribed verbatim from `modeling/backbone/utils.py` so the test needs
+        no detectron2 install.
+
+  * src/MatteEngine.cpp
+      - the decoder tiling reproduces `MEMatte.patch_inference` from
+        `modeling/meta_arch/mematte.py`.
+      - the input normalisation constants and the size-divisibility/padding
+        order follow `configs/common/model.py` and `MEMatte.preprocess_inputs`.
+
+The published MEMatte model weights are NOT redistributed here. This repository's
+release artifacts ship no model files; see tools/fetch_models.sh.
+
+Note: as of this writing the upstream MEMatte repository states "The code is
+released under the MIT License" in its README but does not include a LICENSE
+file. The attribution above is made on the basis of that statement.
+
+If you use this plugin in research, please cite the original work:
+
+    @inproceedings{lin2025mematte,
+      title     = {Memory Efficient Matting with Adaptive Token Routing},
+      author    = {Lin, Yiheng and others},
+      booktitle = {AAAI},
+      year      = {2025}
+    }
+
+--------------------------------------------------------------------------------
+OpenFX — the OFX image effect plug-in API
+https://github.com/AcademySoftwareFoundation/openfx
+Licence: BSD 3-Clause
+--------------------------------------------------------------------------------
+
+Fetched at build time (tag OFX_Release_1.5.1). The OpenFX C++ Support library is
+compiled into the plugin. Not redistributed in source form here.
+
+--------------------------------------------------------------------------------
+ONNX Runtime
+https://github.com/microsoft/onnxruntime
+Licence: MIT
+--------------------------------------------------------------------------------
+
+Fetched at build time and bundled inside the .ofx.bundle as a privately-renamed
+shared library (libonnxruntime_hyp.* / onnxruntime_hyp.dll). Release artifacts
+DO redistribute this binary.
+
+On Windows the bundled build is a static-CRT build of ONNX Runtime produced for
+the humbaba project and hosted at
+https://github.com/samhodge-tokgan/humbaba/releases — still MIT-licensed ONNX
+Runtime, rebuilt with --enable_msvc_static_runtime.
+
+--------------------------------------------------------------------------------
+humbaba — Depth Anything 3 OpenFX plugin
+https://github.com/samhodge-tokgan/humbaba
+Licence: Apache-2.0
+--------------------------------------------------------------------------------
+
+The cross-platform OFX + ONNX Runtime scaffolding in this repository is adapted
+from humbaba: the CMake build and bundle assembly, the private-runtime renaming,
+packaging/ofx_exports.*, src/OrtAccel.h, src/WinLoader.cpp, and the headless
+Natron test harness.
