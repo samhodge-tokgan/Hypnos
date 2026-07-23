@@ -57,7 +57,7 @@
   "memory use is capped by the global-attention token limit."
 #define kPluginIdentifier "com.tokgan.openfx.MEMatte"
 #define kPluginVersionMajor 0
-#define kPluginVersionMinor 1
+#define kPluginVersionMinor 2
 
 #define kClipTrimap "Trimap"
 
