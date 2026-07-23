@@ -1,5 +1,11 @@
 # Hypnos — MEMatte OpenFX plugin
 
+<p align="center">
+  <img src="docs/media/banner.gif" alt="MEMatte in an OpenFX pipeline: source plate, trimap, extracted matte, and the matte overlaid on the plate" width="905">
+</p>
+
+<p align="center"><em>Source plate, trimap, extracted matte, and the matte overlaid back on the plate.</em></p>
+
 A hardware-accelerated **OpenFX** plugin that extracts an **alpha matte** from an image and a
 trimap using **[MEMatte](https://github.com/linyiheng123/MEMatte)** (AAAI 2025), run through
 **ONNX Runtime** — the **CoreML** execution provider on Apple Silicon and the **CUDA** provider on
