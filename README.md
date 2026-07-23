@@ -86,9 +86,13 @@ Runtime are fetched automatically.
 cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-# Linux (gcc, CUDA 12 ORT). Needs patchelf for the private-soname step.
+# Linux — build on EL8 (Rocky 8 + gcc-toolset-12, or manylinux_2_28), NOT on a
+# newer distro: the VFX Reference Platform baseline is glibc 2.28, and a binary
+# built on Ubuntu 24.04 will not load there. Needs patchelf.
+source /opt/rh/gcc-toolset-12/enable
 cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
+tools/check_el8_abi.sh build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx
 
 # Windows (MSVC / Visual Studio 2022, static-CRT CUDA ORT)
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DHYP_WITH_ONNX=ON
@@ -156,7 +160,12 @@ If your facility mirrors the exported models internally, `tools/fetch_models.sh 
 - The sizing estimator lands within ~8% of MEMatte's published 0.71 GB (ViT-S) and ~1% of
   1.49 GB (ViT-B) at 1024².
 
-### Verified on Linux + CUDA (Ubuntu 24.04, RTX A6000 48 GB, driver 570, Natron 2.5)
+### Verified on Linux + CUDA
+
+Two distros, because the ABI floor matters: **Rocky Linux 8.10** (glibc 2.28 — the VFX Reference
+Platform baseline, RTX 3090) for the shipped artifact, and **Ubuntu 24.04** (RTX A6000 48 GB,
+driver 570) for the performance numbers. The Rocky-built binary loads and renders on both;
+`tools/check_el8_abi.sh` and CI keep it that way.
 
 - **Cross-platform numerical parity.** The same plate gives `max|Linux − macOS| = 4.9e-4`,
   `MAE = 1.3e-6`, mean alpha 0.219111 vs 0.219110.

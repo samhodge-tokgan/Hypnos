@@ -28,19 +28,67 @@ jobs:
       - name: Resolution dynamics
         run: python tools/shape_dynamics_test.py
 
+  # Linux is built inside an EL8 container, NOT on the ubuntu runner.
+  #
+  # The VFX Reference Platform baseline is RHEL/Rocky 8: glibc 2.28,
+  # GLIBCXX_3.4.25. A binary built on ubuntu-22.04 (let alone 24.04) requires
+  # GLIBC_2.33/2.34/2.38 and GLIBCXX_3.4.26+, so it will NOT load in a host on
+  # Rocky 8 - which is what most facilities actually run. This shipped broken in
+  # v0.1.0 and was caught only by testing on a real Rocky 8 box.
+  #
+  # Building in manylinux_2_28 with gcc-toolset-12 yields a binary needing only
+  # GLIBC_2.27 / GLIBCXX_3.4.21, which runs on Rocky 8 AND on newer distros.
+  build-linux:
+    name: Build (linux, EL8 / manylinux_2_28)
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          dnf install -y patchelf gcc-toolset-12 cmake git || \
+            yum install -y patchelf gcc-toolset-12 cmake git
+
+      - name: Configure and build
+        run: |
+          source /opt/rh/gcc-toolset-12/enable
+          cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel "$(nproc)"
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Verify EL8 ABI floor
+        # The whole point of this job: fail loudly if the binary would not load
+        # on Rocky 8. Nothing else in the build or tests catches this.
+        run: bash tools/check_el8_abi.sh build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx
+
+      - name: Check bundle layout
+        run: |
+          set -e
+          # OFX spec: the arch dir MUST be hyphenated or hosts silently skip it.
+          test -f build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx
+          test -f build/MEMatte.ofx.bundle/Contents/Linux-x86-64/libonnxruntime_hyp.so.1
+          SYMS=$(nm -D --defined-only build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx \
+                 | awk '{print $3}' | grep -v '^_' | sort)
+          test "$SYMS" = "$(printf 'OfxGetNumberOfPlugins\nOfxGetPlugin')"
+          echo "bundle layout and symbol isolation OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MEMatte-linux-x86_64
+          path: build/MEMatte.ofx.bundle
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-22.04, windows-2022]
+        os: [macos-14, windows-2022]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install patchelf (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y patchelf
 
       - name: Configure
         run: cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
@@ -66,29 +114,21 @@ jobs:
           BUNDLE=build/MEMatte.ofx.bundle
           test -d "$BUNDLE" || { echo "no bundle"; exit 1; }
           case "${{ runner.os }}" in
-            macOS)   ARCH=MacOS;        LIBDIR=Frameworks;    LIB=libonnxruntime_hyp.1.dylib;;
-            Linux)   ARCH=Linux-x86-64; LIBDIR=Linux-x86-64;  LIB=libonnxruntime_hyp.so.1;;
-            Windows) ARCH=Win64;        LIBDIR=Win64;         LIB=onnxruntime_hyp.dll;;
+            macOS)   ARCH=MacOS;  LIBDIR=Frameworks; LIB=libonnxruntime_hyp.1.dylib;;
+            Windows) ARCH=Win64;  LIBDIR=Win64;      LIB=onnxruntime_hyp.dll;;
           esac
-          # The Linux arch dir MUST be hyphenated or OFX hosts silently skip the
-          # binary - worth failing CI over, since nothing else catches it.
           test -f "$BUNDLE/Contents/$ARCH/MEMatte.ofx"
           test -f "$BUNDLE/Contents/$LIBDIR/$LIB"
           echo "bundle layout ok"
 
-      - name: Check symbol isolation (macOS/Linux)
-        if: runner.os != 'Windows'
+      - name: Check symbol isolation (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -e
           BIN=$(find build/MEMatte.ofx.bundle -name 'MEMatte.ofx' -type f | head -1)
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            SYMS=$(nm -gU "$BIN" | awk '{print $3}' | sort)
-            EXPECT=$(printf '_OfxGetNumberOfPlugins\n_OfxGetPlugin\n')
-          else
-            SYMS=$(nm -D --defined-only "$BIN" | awk '{print $3}' | grep -v '^_' | sort)
-            EXPECT=$(printf 'OfxGetNumberOfPlugins\nOfxGetPlugin\n')
-          fi
+          SYMS=$(nm -gU "$BIN" | awk '{print $3}' | sort)
+          EXPECT=$(printf '_OfxGetNumberOfPlugins\n_OfxGetPlugin\n')
           # Anything else exported could interpose on the host or a sibling plugin.
           if [ "$SYMS" != "$EXPECT" ]; then
             echo "unexpected exported symbols:"; echo "$SYMS"; exit 1

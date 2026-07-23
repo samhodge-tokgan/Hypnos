@@ -3,8 +3,26 @@
 Target for this project: an internal Linux workstation, deliberately not named here — put it in
 your `~/.ssh/config` and refer to it by alias.
 
-**Validated on:** Ubuntu 24.04.4, NVIDIA RTX A6000 (48 GB, driver 570.211.01), CUDA 12,
-gcc 12.4, CMake 4.3, Natron 2.5.0. Everything in this document has been run there.
+**Build on EL8, not on your desktop distro.** The VFX Reference Platform baseline is
+RHEL/Rocky 8 — glibc 2.28, `GLIBCXX_3.4.25` — and that is what most facilities run. A binary built
+on Ubuntu 24.04 requires `GLIBC_2.33/2.34/2.38` and `GLIBCXX_3.4.26`, so it does not load there at
+all. v0.1.0 shipped exactly that mistake; it was caught only by trying the artifact on a real
+Rocky 8 box, because nothing in the build or the test suite notices.
+
+Build inside `manylinux_2_28`, or on EL8 with `gcc-toolset-12`. That yields a binary needing only
+`GLIBC_2.27` / `GLIBCXX_3.4.21`, which runs on Rocky 8 **and** on newer distros — the
+compatibility only goes one way. Check any Linux build with:
+
+```bash
+tools/check_el8_abi.sh build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx
+```
+
+CI enforces this in the `build-linux` job.
+
+**Validated on:** Rocky Linux 8.10 (glibc 2.28, gcc-toolset-12, RTX 3090, Natron 2.5) for the
+released artifact, and Ubuntu 24.04.4 (RTX A6000 48 GB, driver 570.211.01, CUDA 12, gcc 12.4,
+Natron 2.5.0) for the performance and memory measurements below. The Rocky-built binary was
+verified to load and render on both.
 
 ## Measured results
 
@@ -29,19 +47,20 @@ predict the OOM rather than admit the job. `tests/sizing_test.cpp` pins all of t
 
 ## Build prerequisites
 
-- A C++17 compiler with `GLIBCXX_3.4.21+`. On Rocky/RHEL 8 use **gcc-toolset-12**
-  (`source /opt/rh/gcc-toolset-12/enable`); the stock gcc 8.5 works for the plugin itself but is
-  older than what the dependencies expect.
+- **gcc-toolset-12 on RHEL/Rocky 8** (`source /opt/rh/gcc-toolset-12/enable`), or the
+  `quay.io/pypa/manylinux_2_28_x86_64` container. Stock EL8 gcc 8.5 is too old for C++17 here.
+  Do not build on a newer distro if you intend to distribute — see the note above.
 - CMake ≥ 3.20.
 - **patchelf** (`dnf install patchelf` / `apt-get install patchelf`) — required for the private
   soname step; CMake fails with a clear error if it is missing.
 - **CUDA Toolkit 12.x** and **cuDNN 9**, for the ONNX Runtime CUDA package the build fetches.
 
 ```bash
-source /opt/rh/gcc-toolset-12/enable      # Rocky 8 only
+source /opt/rh/gcc-toolset-12/enable
 cmake -S . -B build -DHYP_WITH_ONNX=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target ort_check MEMatte -j"$(nproc)"
+cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
+tools/check_el8_abi.sh build/MEMatte.ofx.bundle/Contents/Linux-x86-64/MEMatte.ofx
 ```
 
 Bundle layout produced:
