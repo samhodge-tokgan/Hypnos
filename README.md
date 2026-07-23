@@ -105,9 +105,17 @@ python3 tools/routing_equivalence_test.py
 python3 tools/shape_dynamics_test.py
 ```
 
-## Models
+## Models and their licensing
 
-Models are **downloaded, not bundled** (as in humbaba), or exported yourself:
+**This project does not redistribute model weights, deliberately.** MEMatte licenses its *code*
+as MIT and says nothing about its checkpoints; those checkpoints
+(`MEMatte_ViT{S,B}_DIM.pth`) are trained on the **Adobe Deep Image Matting / Composition-1k**
+dataset and fine-tuned from ViTMatte's Composition-1k weights, and Adobe's dataset agreement
+restricts models trained on it to **non-commercial** use and distribution. Shipping them from an
+Apache-2.0 repo aimed at commercial hosts would misrepresent those terms, so the release
+artifacts contain no `.onnx` files and `tools/fetch_models.*` has no default URL.
+
+Export them yourself instead, having accepted the upstream terms — about a minute per variant:
 
 ```sh
 git clone https://github.com/linyiheng123/MEMatte
@@ -121,6 +129,9 @@ python3 tools/export_mematte.py --mematte-repo ../MEMatte \
 
 The plugin looks for `mematte_<s|b>_{backbone,decoder}.onnx` in the *Backbone/Decoder file*
 parameters, then `$MEMATTE_MODEL_DIR`, then the bundle's `Contents/Resources`.
+
+If your facility mirrors the exported models internally, `tools/fetch_models.sh --base-url ...`
+(or `-BaseUrl` on Windows) will pull them from there, with optional SHA-256 verification.
 
 ## Status
 
@@ -225,6 +236,8 @@ retry, the other costs a silently wrong render.
   identity-OCIO trick `tests/natron/render_matte.py` attempts, so the plugin receives
   host-transformed values. Matte quality is unaffected, but proving that ACEScg EXR and 8-bit sRGB
   inputs agree needs a harness that controls colour management properly.
+- **No model weights are published** — see [Models and their licensing](#models-and-their-licensing).
+  You must export them yourself.
 - **Nuke has never loaded the plugin.** Nuke 16.1v3 is installed on the Windows machine but its
   RLM licence server was unreachable, so this is unverified. The CRT analysis above is a strong
   proxy — there is no longer a CRT dependency to conflict with — but not a substitute.

@@ -40,8 +40,19 @@ is a DERIVATIVE WORK of MEMatte's source. Specifically:
       - the input normalisation constants and the size-divisibility/padding
         order follow `configs/common/model.py` and `MEMatte.preprocess_inputs`.
 
-The published MEMatte model weights are NOT redistributed here. This repository's
-release artifacts ship no model files; see tools/fetch_models.sh.
+MODEL WEIGHTS ARE NOT REDISTRIBUTED HERE, and this is deliberate.
+
+MEMatte's README licenses "the code" as MIT and says nothing about its trained
+checkpoints. Those checkpoints (MEMatte_ViTS_DIM.pth, MEMatte_ViTB_DIM.pth) are
+trained on the Adobe Deep Image Matting / Composition-1k dataset and fine-tuned
+from ViTMatte's Composition-1k weights. Adobe's Image Dataset License Agreement
+restricts models trained on that data to NON-COMMERCIAL use and distribution, so
+those weights are not ours to hand on under Apache-2.0 terms.
+
+Accordingly: the release artifacts contain no .onnx files, tools/fetch_models.*
+has no default download URL, and users export the models themselves from the
+upstream checkpoints under whatever terms they have accepted with Adobe and the
+MEMatte authors. See tools/export_mematte.py.
 
 Note: as of this writing the upstream MEMatte repository states "The code is
 released under the MIT License" in its README but does not include a LICENSE

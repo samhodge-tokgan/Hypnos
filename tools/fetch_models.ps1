@@ -1,22 +1,48 @@
-# Download the MEMatte ONNX models into the plugin bundle's Contents\Resources.
+# Put the MEMatte ONNX models into the plugin bundle's Contents\Resources.
 #
-# Release installers are shipped MODEL-LESS to stay under GitHub's per-asset size
-# limit. Run this once after installing:
+# THIS PROJECT DOES NOT REDISTRIBUTE MODEL WEIGHTS, and there is no default
+# download URL. That is deliberate, not an oversight:
 #
-#   powershell -ExecutionPolicy Bypass -File Contents\fetch_models.ps1
-#   powershell -File tools\fetch_models.ps1 -Dest C:\models    # dev build
+#   * MEMatte licenses its CODE as MIT ("The code is released under the MIT
+#     License"); it says nothing about the weights and ships no LICENSE file.
+#   * The published checkpoints (MEMatte_ViT{S,B}_DIM.pth) are trained on the
+#     Adobe Deep Image Matting / Composition-1k dataset, and fine-tuned from
+#     ViTMatte's Composition-1k checkpoints. Adobe's dataset agreement restricts
+#     models trained on it to NON-COMMERCIAL use and distribution.
 #
-# You can skip this entirely by exporting the models yourself
-# (tools\export_mematte.py) and pointing $env:MEMATTE_MODEL_DIR at them, or by
-# setting the plugin's Backbone/Decoder file parameters.
+# So exporting the models is something you do yourself, having accepted the
+# upstream terms. It takes about a minute per variant:
+#
+#     git clone https://github.com/linyiheng123/MEMatte
+#     pip install -r tools\requirements.txt
+#     pip install 'git+https://github.com/facebookresearch/detectron2.git'
+#     python tools\export_mematte.py --mematte-repo ..\MEMatte `
+#         --checkpoint ..\MEMatte\checkpoints\MEMatte_ViTS_DIM.pth `
+#         --variant s --out-dir build\models
+#
+# Then either copy the .onnx files into this bundle's Contents\Resources, point
+# $env:MEMATTE_MODEL_DIR at them, or set the plugin's Backbone/Decoder file params.
+#
+# If your facility mirrors the exported models internally, point this script at
+# that mirror and it will fetch and (optionally) checksum them:
+#
+#     powershell -File fetch_models.ps1 -BaseUrl https://internal.example/mematte
 param(
     [string]$Dest = "",
-    [string]$BaseUrl = $(if ($env:MEMATTE_MODEL_BASE_URL) { $env:MEMATTE_MODEL_BASE_URL }
-                         else { "https://github.com/samhodge-tokgan/Hypnos/releases/download/models-v1" }),
+    [string]$BaseUrl = $(if ($env:MEMATTE_MODEL_BASE_URL) { $env:MEMATTE_MODEL_BASE_URL } else { "" }),
+    [string]$Sha256File = "",
     [string[]]$Variants = @("s", "b")
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrEmpty($BaseUrl)) {
+    Get-Content $PSCommandPath | Select-Object -First 29 | ForEach-Object { $_ -replace '^# ?', '' }
+    Write-Host ""
+    Write-Error ("No -BaseUrl given, and this project publishes no model weights. " +
+                 "Export them yourself with tools\export_mematte.py (see above).")
+    exit 1
+}
 
 if ([string]::IsNullOrEmpty($Dest)) {
     # Default to Resources\ next to this script (the in-bundle case).
@@ -24,14 +50,12 @@ if ([string]::IsNullOrEmpty($Dest)) {
 }
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 
-# SHA-256 of each published asset. Filled in when the models-v1 release is cut;
-# until then the checksum step is skipped with a loud warning rather than
-# silently trusting whatever the URL returns.
-$Checksums = @{
-    "mematte_s_backbone.onnx" = ""
-    "mematte_s_decoder.onnx"  = ""
-    "mematte_b_backbone.onnx" = ""
-    "mematte_b_decoder.onnx"  = ""
+$Checksums = @{}
+if (-not [string]::IsNullOrEmpty($Sha256File)) {
+    Get-Content $Sha256File | ForEach-Object {
+        $parts = $_ -split '\s+' | Where-Object { $_ }
+        if ($parts.Count -ge 2) { $Checksums[($parts[1] -replace '^\*', '')] = $parts[0] }
+    }
 }
 
 foreach ($v in $Variants) {
@@ -42,20 +66,19 @@ foreach ($v in $Variants) {
             Write-Host "$name already present, skipping"
             continue
         }
-        Write-Host "fetching $name"
+        Write-Host "fetching $name from $BaseUrl"
         $tmp = "$out.part"
         Invoke-WebRequest -Uri "$BaseUrl/$name" -OutFile $tmp -UseBasicParsing
 
-        $want = $Checksums[$name]
-        if ([string]::IsNullOrEmpty($want)) {
-            Write-Warning "no pinned checksum for $name - NOT verified"
-        } else {
+        if ($Checksums.ContainsKey($name)) {
             $got = (Get-FileHash -Algorithm SHA256 $tmp).Hash.ToLower()
-            if ($got -ne $want.ToLower()) {
+            if ($got -ne $Checksums[$name].ToLower()) {
                 Remove-Item $tmp -Force
-                throw "CHECKSUM MISMATCH for ${name}: expected $want, got $got"
+                throw "CHECKSUM MISMATCH for ${name}: expected $($Checksums[$name]), got $got"
             }
             Write-Host "  checksum ok"
+        } else {
+            Write-Warning "no checksum listed for $name - NOT verified"
         }
         Move-Item -Force $tmp $out
     }
